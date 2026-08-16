@@ -1,0 +1,99 @@
+name: Sync Upstream & Build FernFlower
+
+on:
+  workflow_dispatch:      # manual trigger button
+  schedule:
+    - cron: '0 3 * * *'   # runs daily at 03:00 UTC — remove if you only want manual runs
+
+permissions:
+  contents: write         # needed to push synced commits and create releases
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      new_commit: ${{ steps.sync.outputs.new_commit }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync with JetBrains/fernflower
+        id: sync
+        run: |
+          git remote add upstream https://github.com/JetBrains/fernflower.git
+          git fetch upstream
+
+          # Detect upstream's default branch (master or main)
+          UPSTREAM_BRANCH=$(git remote show upstream | grep 'HEAD branch' | awk '{print $NF}')
+          echo "Upstream default branch: $UPSTREAM_BRANCH"
+
+          BEFORE=$(git rev-parse HEAD)
+
+          # Fast-forward merge upstream into current branch
+          git merge upstream/$UPSTREAM_BRANCH --ff-only || {
+            echo "Fast-forward failed, attempting regular merge..."
+            git merge upstream/$UPSTREAM_BRANCH -m "Merge upstream/$UPSTREAM_BRANCH into fork"
+          }
+
+          AFTER=$(git rev-parse HEAD)
+
+          git push origin HEAD:${{ github.ref_name }}
+
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "new_commit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "new_commit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-release:
+    needs: sync-upstream
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout synced repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build fernflower.jar
+        run: ./gradlew jar --no-daemon
+
+      - name: Locate built jar
+        id: findjar
+        run: |
+          JAR_PATH=$(find . -path "*/build/libs/*.jar" | grep -v sources | head -n 1)
+          echo "Found jar at: $JAR_PATH"
+          cp "$JAR_PATH" fernflower.jar
+          echo "jar_path=fernflower.jar" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "tag=build-$(date +'%Y%m%d')-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Fernflower build ${{ steps.tag.outputs.tag }}"
+          body: "Automated build from synced upstream (JetBrains/fernflower)."
+          files: ${{ steps.findjar.outputs.jar_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
