@@ -63,11 +63,28 @@ jobs:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
 
+      - name: Detect required Java version
+        id: javaver
+        run: |
+          VERSION=$(grep -oP '(?<=languageVersion\.set\(JavaLanguageVersion\.of\()\d+' build.gradle* 2>/dev/null | head -n1)
+          if [ -z "$VERSION" ]; then
+            VERSION=$(grep -oP "(?<=sourceCompatibility\s=\s['\"]?)(\d+)" build.gradle* 2>/dev/null | head -n1)
+          fi
+          if [ -z "$VERSION" ]; then
+            VERSION=$(grep -oP "(?<=sourceCompatibility\s)(JavaVersion\.VERSION_)?\K\d+" build.gradle* 2>/dev/null | head -n1)
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "Could not detect Java version from build.gradle, defaulting to 21"
+            VERSION=21
+          fi
+          echo "Detected required Java version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: ${{ steps.javaver.outputs.version }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
