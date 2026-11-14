@@ -1,5 +1,6 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 filegroup(
     name = "testData",
@@ -16,6 +17,10 @@ jps_test(
 )
 ### skip generation section `test intellij.java.decompiler.engine.tests`
 
+### auto-generated section `dev intellij.java.decompiler.engine` start
+content_module_jar(module = ":engine")
+### auto-generated section `dev intellij.java.decompiler.engine` end
+
 ### auto-generated section `build intellij.java.decompiler.engine` start
 jvm_library(
     name = "engine",
@@ -27,6 +32,10 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    manifest_lines = [
+        "Main-Class: org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler",
+        "Automatic-Module-Name: org.jetbrains.java.decompiler",
+    ],
     module_name = "intellij.java.decompiler.engine",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -41,6 +50,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.decompiler.engine.iml",
+        "resources/intellij.java.decompiler.engine.xml",
     ],
     visibility = ["//visibility:public"],
 )
